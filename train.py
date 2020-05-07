@@ -1,11 +1,13 @@
 import argparse
 from model import *
+from pytorch_memlab import profile, MemReporter
 
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 import time
 import copy
+import sys
 
 SEED = 10000
 
@@ -18,9 +20,10 @@ HIDDEN_N = 128
 EMBED_KERNEL = 5
 
 EPOCHS = 100
-NUM_POP = 5
+NUM_POP = 30
 RES = 50
 
+reporter = MemReporter()
 
 
 def create_settings():
@@ -94,13 +97,15 @@ def parse():
 
 
 # --- MAIN ---------------------------------------------------------------------+
-
+# @profile
 def train(settings):
 
     ####### INITIALIZE ########
     seed = settings['SEED']
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+    print('Initializing models...')
 
     CA_args = (settings['CHANNEL_N'], settings['RADIUS'], settings['NUM_FILTERS'], settings['HIDDEN_N'])
     Embed_args = (settings['EMBED_KERNEL'],)
@@ -119,7 +124,6 @@ def train(settings):
 
     tloss = nn.TripletMarginLoss()
     #############################
-
     optim_emb = torch.optim.Adam([p for p in embed.parameters()], lr=1e-3)
     Optims_CAs = [torch.optim.Adam([p for p in CA.parameters()], lr=1e-3) for CA in CAs]
 
@@ -137,7 +141,9 @@ def train(settings):
     index_list = np.arange(len(CAs))
 
     if settings['save']:
-        folder = f'models/model_N_{settings["NUM_POP"]}_' + time.strftime("%Y%m%d-%H%M%S")
+        s = sys.argv[1:]
+        command_input = '_'.join([str(elem) for elem in s])
+        folder = f'models/model_' + time.strftime("%Y%m%d-%H%M%S") + command_input
         CAfig_folder = path.join(folder, 'figs', 'CAs')
         statfig_folder = path.join(folder, 'figs', 'stats')
 
@@ -177,7 +183,6 @@ def train(settings):
                 [a.legend() for i, a in enumerate(ax.flatten()) if i != 4]
 
                 fig.suptitle(f'Epoch: {epoch}')
-
                 STATPLOT_PATH = path.join(statfig_folder, '_epoch_' + str(epoch).zfill(4) + '_stats.png')
                 plt.savefig(STATPLOT_PATH)
                 plt.close()
@@ -327,16 +332,21 @@ def train(settings):
 
                 fig.suptitle(f'{CA_i} Max. gradient: {gradmax:e}, Tloss: {loss:e}')
 
-                CAIM_PATH = path.join(CAfig_folder, 'epoch_' + str(epoch).zfill(4) + '_CA_' + str(CA_i).zfill(3) + '.png')
+                CAIM_subfolder = path.join(CAfig_folder, 'epoch_' + str(epoch).zfill(4))
+                if not path.exists(CAIM_subfolder):
+                    makedirs(CAIM_subfolder)
+                CAIM_PATH = path.join(CAIM_subfolder, 'epoch_' + str(epoch).zfill(4) + '_CA_' + str(CA_i).zfill(3) + '.png')
                 plt.savefig(CAIM_PATH)
                 plt.close()
                 ###########################
+            # reporter.report()
+            print(torch.cuda.memory_stats(torch.cuda.current_device()))
 
         meangrad = 0
         for CA in CAs:
             for p in CA.parameters():
                 if p.grad is not None:
-                    meangrad += torch.abs(p.grad).mean()
+                    meangrad += torch.abs(p.grad).mean().detach()
         mean_grads.append(meangrad.mean())
 
         emb_loss.append(total_loss)
@@ -346,7 +356,7 @@ def train(settings):
         for i in range(len(zs_1)):
             for j in range(len(zs_1)):
                 if j != i:
-                    tloss_prev.append((i, j, tloss(zs_1[i], zs_2[i], zs_1[j])))
+                    tloss_prev.append((i, j, tloss(zs_1[i], zs_2[i], zs_1[j]).detach() ))
 
         # stats
         zs_prev = torch.stack(zs_1).view(settings['NUM_POP'], -1).detach()
@@ -363,7 +373,6 @@ def train(settings):
 
 
 # --- RUN ----------------------------------------------------------------------+
-
 if __name__ == '__main__':
     settings = create_settings()
     train(settings)
