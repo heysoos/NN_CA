@@ -1,6 +1,6 @@
 import argparse
 from model import *
-from pytorch_memlab import profile, MemReporter
+from pytorch_memlab import profile, profile_every, MemReporter
 
 import matplotlib.pyplot as plt
 
@@ -19,12 +19,11 @@ HIDDEN_N = 128
 
 EMBED_KERNEL = 5
 
-EPOCHS = 100
+EPOCHS = 10
 NUM_POP = 30
 RES = 50
 
-reporter = MemReporter()
-
+# reporter = MemReporter()
 
 def create_settings():
     args = parse()
@@ -97,7 +96,7 @@ def parse():
 
 
 # --- MAIN ---------------------------------------------------------------------+
-# @profile
+# @profile_every(1)
 def train(settings):
 
     ####### INITIALIZE ########
@@ -212,7 +211,8 @@ def train(settings):
             # pick most similar or random other CA
             if epoch == 0:
                 # pick a random other CA
-                CA_B_i = np.random.permutation(index_list[index_list != CA_i])[0]
+                # CA_B_i = np.random.permutation(index_list[index_list != CA_i])[0]
+                CA_B_i = np.random.permutation(index_list)[0]
                 CA_B = CAs[CA_B_i]
                 CA_A = CAs[CA_i]
             else:
@@ -239,6 +239,8 @@ def train(settings):
 
                 CA_A = CAs[CA_i]
                 CA_B = CAs[CA_B_i]
+
+            reporter = MemReporter(CAs[0])
 
             # reset IC
             x_A1 = torch.cuda.FloatTensor(np.random.standard_normal(size=(settings['CHANNEL_N'], res, res))).unsqueeze(0)
@@ -277,7 +279,7 @@ def train(settings):
                 z_B = torch.cat(z_B, 0)
 
                 loss = tloss(z_A1, z_A2, z_B)
-                total_loss += loss.cpu().detach().item() / len(CAs)
+                total_loss += loss.item() / len(CAs)
                 loss.backward()
 
                 # normalize gradients
@@ -301,8 +303,8 @@ def train(settings):
                 x_B = x_B.detach()
 
             # save embedding time-series for each CA (passes to zs_prev)
-            zs_1.append(z_A1.detach())
-            zs_2.append(z_A2.detach())
+            zs_1.append(z_A1.detach().cpu())
+            zs_2.append(z_A2.detach().cpu())
 
             ##### PLOTTING THINGS #####
             if settings['plot'] and settings['save'] and epoch % 3 == 0:
@@ -330,7 +332,7 @@ def train(settings):
                 for ax in axes:
                     ax.set_axis_off()
 
-                fig.suptitle(f'{CA_i} Max. gradient: {gradmax:e}, Tloss: {loss:e}')
+                # fig.suptitle(f'{CA_i} Max. gradient: {gradmax:e}, Tloss: {loss:e}')
 
                 CAIM_subfolder = path.join(CAfig_folder, 'epoch_' + str(epoch).zfill(4))
                 if not path.exists(CAIM_subfolder):
@@ -339,8 +341,8 @@ def train(settings):
                 plt.savefig(CAIM_PATH)
                 plt.close()
                 ###########################
-            # reporter.report()
-            print(torch.cuda.memory_stats(torch.cuda.current_device()))
+            reporter.report()
+            # print(torch.cuda.memory_stats(torch.cuda.current_device()))
 
         meangrad = 0
         for CA in CAs:
@@ -356,12 +358,12 @@ def train(settings):
         for i in range(len(zs_1)):
             for j in range(len(zs_1)):
                 if j != i:
-                    tloss_prev.append((i, j, tloss(zs_1[i], zs_2[i], zs_1[j]).detach() ))
+                    tloss_prev.append((i, j, tloss(zs_1[i], zs_2[i], zs_1[j]).detach().cpu() ))
 
         # stats
-        zs_prev = torch.stack(zs_1).view(settings['NUM_POP'], -1).detach()
+        zs_prev = torch.stack(zs_1).view(settings['NUM_POP'], -1).detach().cpu()
         dists = torch.cdist(zs_prev, zs_prev) / len(CAs)
-        total_dists.append(dists.triu().sum().cpu().detach().numpy())
+        total_dists.append(dists.triu().sum().numpy())
 
         hard_negative = [tl[2].detach().cpu().numpy() for tl in tloss_prev if tl[2] > 0.]
         hard_negative_sum.append(np.stack(hard_negative).sum() / settings['NUM_POP'])

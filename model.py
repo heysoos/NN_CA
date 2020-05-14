@@ -132,7 +132,7 @@ class CAModel(nn.Module):
 
         death_mask = F.avg_pool2d(alpha_channel, kernel_size=2 * self.r + 1, stride=1, padding=self.r) < 0.2
         death_mask = death_mask[:, :, self.r:-self.r, self.r:-self.r]
-        return alive_mask.cuda() & death_mask.cuda()
+        return alive_mask & death_mask
 
     def forward(self, x, fire_rate=None, step_size=1.0):
         pre_life_mask = self.get_living_mask(x)
@@ -142,11 +142,11 @@ class CAModel(nn.Module):
 
         if fire_rate is None:
             fire_rate = self.fire_rate
-        update_mask = (torch.rand(x[:, :1, :, :].shape) <= fire_rate).type(torch.FloatTensor).cuda()
+        update_mask = (torch.rand(x[:, :1, :, :].shape) <= fire_rate).type(torch.cuda.FloatTensor)
         x = x + dx * update_mask
 
         post_life_mask = self.get_living_mask(x)
-        life_mask = (pre_life_mask & post_life_mask).type(torch.FloatTensor).cuda()
+        life_mask = (pre_life_mask & post_life_mask).type(torch.cuda.FloatTensor)
 
         x = x * life_mask
 
