@@ -94,6 +94,7 @@ def parse():
     args = parser.parse_args()
     return args
 
+reporter = MemReporter()
 
 # --- MAIN ---------------------------------------------------------------------+
 # @profile_every(1)
@@ -240,7 +241,6 @@ def train(settings):
                 CA_A = CAs[CA_i]
                 CA_B = CAs[CA_B_i]
 
-            reporter = MemReporter(CAs[0])
 
             # reset IC
             x_A1 = torch.cuda.FloatTensor(np.random.standard_normal(size=(settings['CHANNEL_N'], res, res))).unsqueeze(0)
@@ -341,7 +341,6 @@ def train(settings):
                 plt.savefig(CAIM_PATH)
                 plt.close()
                 ###########################
-            reporter.report()
             # print(torch.cuda.memory_stats(torch.cuda.current_device()))
 
         meangrad = 0
@@ -370,6 +369,7 @@ def train(settings):
         hard_frac.append(len(hard_negative) / len(tloss_prev))
 
         print(f'{epoch}: tloss={emb_loss[-1]:.4f}, hardfrac={hard_frac[-1]:.4f}, distsum={total_dists[-1]:.2f}')
+        reporter.report()
 
     pass
 
